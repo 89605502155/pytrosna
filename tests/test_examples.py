@@ -23,6 +23,8 @@ def test_python_example(script: Path, tmp_path: Path) -> None:
             timeout=300,
             check=False,
             cwd=tmp_path,
+            # the examples print tables with box-drawing characters
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         )
         assert result.returncode == 0, result.stderr
 

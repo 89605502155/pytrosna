@@ -250,7 +250,9 @@ def test_writer_access(room: File) -> None:
 def test_module_exports() -> None:
     assert pytrosna.EXTENSION == "trosna"
     assert pytrosna.FORMAT_VERSION == (1, 0)
-    assert pytrosna.__version__ == "0.1.0"
+    from importlib.metadata import version
+
+    assert pytrosna.__version__ == version("pytrosna")
     for name in pytrosna.__all__:
         assert hasattr(pytrosna, name), name
 

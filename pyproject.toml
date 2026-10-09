@@ -1,6 +1,6 @@
 [project]
 name = "pytrosna"
-version = "0.1.0"
+version = "0.1.1"
 description = "Read, write and edit Trosna time-series files (.trosna) in pure Python: columnar, compressed, versioned, with pandas, Polars and PyArrow adapters"
 readme = "README.md"
 license = "MIT OR Apache-2.0"

@@ -3,6 +3,21 @@
 All notable changes of pytrosna are documented here. The project follows
 [Semantic Versioning](https://semver.org).
 
+## 0.1.1 — 2026-10-09
+
+Fixes for Windows.
+
+* The file lock no longer fails on Windows systems that refuse lock offsets
+  beyond 2 GiB (it falls back to an offset below 2 GiB), and it is released
+  explicitly before the file is closed, so a file can be reopened at once.
+* The `pytrosna` command writes UTF-8 even when its output is redirected on
+  Windows, where the code page (e.g. cp1252) cannot encode Cyrillic device
+  names, labels or values.
+* Tests: Windows locking is tested with a stand-in `msvcrt` module, the CLI
+  with a legacy code page; property tests no longer have a time limit.
+* The GitHub Actions workflows were removed; the package is published with
+  `uv publish`.
+
 ## 0.1.0 — 2026-10-09
 
 First release: a pure-Python implementation of the Trosna file format,

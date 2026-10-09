@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -282,8 +283,33 @@ def test_helpers() -> None:
 def test_version_and_module_entry_point(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit):
         main(["--version"])
-    assert "pytrosna 0.1.0" in capsys.readouterr().out
+    assert f"pytrosna {pytrosna.__version__}" in capsys.readouterr().out
     result = subprocess.run(
         [sys.executable, "-m", "pytrosna", "--help"], capture_output=True, text=True, check=True
     )
     assert "convert" in result.stdout
+
+
+def test_output_is_utf8_even_for_a_legacy_code_page(tmp_path: Path) -> None:
+    """A redirected stream on Windows uses the locale's code page (e.g. cp1252),
+    which cannot encode Cyrillic device names or labels."""
+    path = tmp_path / "комната.trosna"
+    pytrosna.write(path, {"time": [1], "температура": [21.5]}, "комната", unit="s")
+    with pytrosna.open(path).edit() as tx:
+        tx.annotate("комната", 1, 1, "дверь открыта")
+    env = {**os.environ, "PYTHONIOENCODING": "cp1252"}
+    for command in (["info"], ["annotations"], ["cat", "--format", "table"], ["log"]):
+        result = subprocess.run(
+            [sys.executable, "-m", "pytrosna", command[0], str(path), *command[1:]],
+            capture_output=True,
+            env=env,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr.decode("utf-8", "replace")
+    result = subprocess.run(
+        [sys.executable, "-m", "pytrosna", "annotations", str(path)],
+        capture_output=True,
+        env=env,
+        check=False,
+    )
+    assert "дверь открыта" in result.stdout.decode("utf-8")

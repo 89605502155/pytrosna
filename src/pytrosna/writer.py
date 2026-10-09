@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import importlib
 import os
 import sys
 import time as _time
@@ -165,27 +166,56 @@ def _now_ns() -> int:
     return _time.time_ns()
 
 
-def _lock(f: BinaryIO) -> None:
-    """Takes an exclusive advisory lock on the file (released when it is closed)."""
-    if sys.platform == "win32":  # pragma: no cover - exercised on Windows only
-        import msvcrt
+_WINDOWS = sys.platform == "win32"
 
-        # Lock one byte far beyond the data, so that readers are not blocked.
-        position = f.tell()
-        f.seek(1 << 62)
-        try:
-            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
-        except OSError:
-            raise LockedError from None
-        finally:
-            f.seek(position)
-    else:
+# Windows locks are mandatory, so the writer locks one byte far beyond the
+# data, where readers never look. Some systems refuse offsets above 2 GiB;
+# the second offset is the fallback for them.
+_WINDOWS_LOCK_OFFSETS = (1 << 62, (1 << 31) - 2)
+
+
+def _lock(f: BinaryIO) -> int | None:
+    """Takes an exclusive lock on the file. Returns the locked offset on
+    Windows (to be passed to :func:`_unlock`), ``None`` elsewhere, where the
+    lock is released when the file is closed."""
+    if not _WINDOWS:
         import fcntl
 
         try:
             fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise LockedError from None
+        return None
+    import errno
+
+    msvcrt = importlib.import_module("msvcrt")
+    position = f.tell()
+    try:
+        error: OSError | None = None
+        for offset in _WINDOWS_LOCK_OFFSETS:
+            f.seek(offset)
+            try:
+                msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError as e:
+                if e.errno in (errno.EACCES, errno.EDEADLK):
+                    raise LockedError from None
+                error = e  # this offset is not supported; try the next one
+            else:
+                return offset
+        assert error is not None  # noqa: S101
+        raise error
+    finally:
+        f.seek(position)
+
+
+def _unlock(f: BinaryIO, offset: int | None) -> None:
+    """Releases a Windows lock taken by :func:`_lock` before the file is closed."""
+    if offset is None:
+        return
+    msvcrt = importlib.import_module("msvcrt")
+    with contextlib.suppress(OSError):
+        f.seek(offset)
+        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
 
 
 def _sort_rows(batch: Batch) -> Batch:
@@ -304,6 +334,7 @@ class Writer:
         self._poisoned = False
         self._closed = False
         self._read_file: BinaryIO | None = None
+        self._lock_offset: int | None = None
         self.recovery: RecoveryReport | None = None
         """What was repaired when the file was opened, if anything."""
 
@@ -327,7 +358,7 @@ class Writer:
             )
         f = os.fdopen(fd, "r+b")
         try:
-            _lock(f)
+            lock = _lock(f)
             f.truncate(0)
             f.seek(0)
             f.write(_header_bytes())
@@ -335,6 +366,7 @@ class Writer:
             f.close()
             raise
         writer = cls(path, f, FILE_HEADER_LEN, Catalog(), options)
+        writer._lock_offset = lock
         writer._dirty = True
         return writer
 
@@ -352,8 +384,9 @@ class Writer:
         options = _options(options, kwargs)
         path = os.fspath(path)
         f = open(path, "r+b")  # noqa: SIM115 - owned by the writer
+        lock = None
         try:
-            _lock(f)
+            lock = _lock(f)
             length = file_size(f)
             check_file_header(read_at(f, 0, min(FILE_HEADER_LEN, length)))
             try:
@@ -391,6 +424,7 @@ class Writer:
             f.close()
             raise
         writer = cls(path, f, end, catalog, options)
+        writer._lock_offset = lock
         writer.recovery = recovery
         writer._dirty = recovery is not None
         return writer
@@ -442,7 +476,10 @@ class Writer:
         if self._read_file is not None:
             self._read_file.close()
             self._read_file = None
-        self._file.close()
+        try:
+            _unlock(self._file, self._lock_offset)
+        finally:
+            self._file.close()
 
     @property
     def closed(self) -> bool:

@@ -430,3 +430,69 @@ def test_damage_in_the_middle_is_not_truncated(sample_file: Path) -> None:
     with Reader(sample_file) as r:
         assert r.finalized
         assert r.devices == []
+
+
+class FakeMsvcrt:
+    """Stands in for the Windows ``msvcrt`` module."""
+
+    LK_NBLCK = 2
+    LK_UNLCK = 0
+
+    def __init__(self, refuse_offsets: tuple[int, ...] = ()) -> None:
+        self.locked: dict[int, int] = {}  # offset -> fd
+        self.refuse = refuse_offsets
+        self.calls: list[tuple[int, int]] = []
+
+    def locking(self, fd: int, mode: int, nbytes: int) -> None:
+        import errno
+        import os
+
+        offset = os.lseek(fd, 0, os.SEEK_CUR)
+        self.calls.append((mode, offset))
+        assert nbytes == 1
+        if mode == self.LK_UNLCK:
+            self.locked.pop(offset, None)
+            return
+        if offset in self.refuse:
+            raise OSError(errno.EINVAL, "Invalid argument")
+        if offset in self.locked:
+            raise OSError(errno.EACCES, "Permission denied")
+        self.locked[offset] = fd
+
+
+@pytest.fixture
+def fake_windows(monkeypatch: pytest.MonkeyPatch) -> FakeMsvcrt:
+    import sys
+
+    import pytrosna.writer as writer_module
+
+    fake = FakeMsvcrt()
+    monkeypatch.setitem(sys.modules, "msvcrt", fake)
+    monkeypatch.setattr(writer_module, "_WINDOWS", True)
+    return fake
+
+
+def test_windows_lock_far_beyond_the_data(path: Path, fake_windows: FakeMsvcrt) -> None:
+    w = Writer.create(path, sync=False)
+    assert fake_windows.locked == {1 << 62: w._file.fileno()}
+    with pytest.raises(LockedError):
+        Writer.open(path)
+    w.create_device(SIMPLE)
+    w.write_row("d", 1, v=1)
+    w.close()
+    assert fake_windows.locked == {}  # unlocked before closing
+    with Writer.open(path, sync=False) as again:
+        again.write_row("d", 2, v=2)
+    assert read_all(path)["v"].to_list() == [1, 2]
+    assert fake_windows.locked == {}
+
+
+def test_windows_lock_falls_back_to_a_32_bit_offset(path: Path, fake_windows: FakeMsvcrt) -> None:
+    fake_windows.refuse = (1 << 62,)
+    w = Writer.create(path, sync=False)
+    assert list(fake_windows.locked) == [(1 << 31) - 2]
+    w.close()
+    assert fake_windows.locked == {}
+    fake_windows.refuse = (1 << 62, (1 << 31) - 2)
+    with pytest.raises(OSError, match="Invalid argument"):
+        Writer.open(path)

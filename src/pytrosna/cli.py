@@ -6,6 +6,7 @@ Run ``pytrosna --help`` or ``pytrosna <command> --help`` for the options.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv
 import io
 import json
@@ -797,6 +798,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Entry point of the ``pytrosna`` command; returns the exit status."""
+    _utf8_output()
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
@@ -810,5 +812,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 
 
-def _stdout() -> TextIO:  # pragma: no cover - kept for embedding
-    return io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+def _utf8_output() -> None:
+    """Writes UTF-8 to the standard streams: device names, labels and values
+    can contain any character, while a redirected stream on Windows uses the
+    locale's code page, which cannot encode most of them."""
+    for stream in (sys.stdout, sys.stderr):
+        encoding = (getattr(stream, "encoding", None) or "").lower().replace("-", "")
+        if encoding != "utf8" and isinstance(stream, io.TextIOWrapper):
+            with contextlib.suppress(ValueError, io.UnsupportedOperation):
+                stream.reconfigure(encoding="utf-8")

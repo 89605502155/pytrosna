@@ -8,9 +8,15 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from hypothesis import settings
 
 import pytrosna
 from pytrosna import DeviceSchema, Writer
+
+# Timing varies a lot between machines (and CI runners); correctness, not
+# speed, is what the property tests check.
+settings.register_profile("pytrosna", deadline=None)
+settings.load_profile("pytrosna")
 
 DATA = Path(__file__).parent / "data"
 GOLDEN = DATA / "golden_v1.trosna"
