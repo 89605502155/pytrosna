@@ -1,0 +1,169 @@
+[project]
+name = "pytrosna"
+version = "0.1.0"
+description = "Read, write and edit Trosna time-series files (.trosna) in pure Python: columnar, compressed, versioned, with pandas, Polars and PyArrow adapters"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+license-files = ["LICENSE-MIT", "LICENSE-APACHE"]
+authors = [
+    { name = "Andrey Ferubko", email = "ferubko1999@yandex.ru" }
+]
+requires-python = ">=3.11"
+keywords = [
+    "time-series",
+    "file-format",
+    "trosna",
+    "columnar",
+    "compression",
+    "gorilla",
+    "versioning",
+    "pandas",
+    "polars",
+    "arrow",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: System :: Archiving :: Compression",
+    "Typing :: Typed",
+]
+dependencies = [
+    "crc32c>=2.4",
+    "lz4>=4.3",
+    "numpy>=1.26",
+    "tzdata ; sys_platform == 'win32'",
+    "zstandard>=0.22 ; python_full_version < '3.14'",
+]
+
+[project.optional-dependencies]
+arrow = ["pyarrow>=15"]
+pandas = ["pandas>=2.1"]
+polars = ["polars>=1.0"]
+all = ["pyarrow>=15", "pandas>=2.1", "polars>=1.0"]
+
+[project.urls]
+Homepage = "https://github.com/89605502155/pytrosna"
+Documentation = "https://github.com/89605502155/pytrosna/tree/main/docs"
+Repository = "https://github.com/89605502155/pytrosna"
+Issues = "https://github.com/89605502155/pytrosna/issues"
+"Format specification" = "https://github.com/89605502155/trosna-file/blob/main/docs/SPEC.md"
+"Rust implementation" = "https://github.com/89605502155/trosna-file"
+
+[project.scripts]
+pytrosna = "pytrosna.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11.9,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytrosna[all]",
+    "hypothesis>=6.168.5",
+    "mypy>=2.4.0",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.16.10",
+]
+
+[tool.uv.build-backend]
+# The source distribution also carries the tests, documentation and examples.
+source-include = ["tests/**", "docs/**", "examples/**", "README.ru.md", "CHANGELOG.md"]
+
+[tool.uv]
+# pyarrow 26 has no CPython 3.14 wheels yet; the development environment
+# uses the newest release that has them.
+constraint-dependencies = ["pyarrow<26 ; python_full_version >= '3.14'"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "A",    # flake8-builtins
+    "C4",   # flake8-comprehensions
+    "EM",   # flake8-errmsg
+    "ISC",  # implicit string concatenation
+    "PIE",  # flake8-pie
+    "PT",   # flake8-pytest-style
+    "RET",  # flake8-return
+    "SIM",  # flake8-simplify
+    "TID",  # flake8-tidy-imports
+    "T20",  # no print in the library
+    "PERF", # performance anti-patterns
+    "PL",   # pylint
+    "RUF",  # ruff-specific rules
+    "S",    # flake8-bandit (security)
+]
+ignore = [
+    "PLR0911", # too many return statements: decoders dispatch on many cases
+    "PLR0912", # too many branches
+    "PLR0913", # too many arguments: public signatures mirror the reference API
+    "PLR0915", # too many statements
+    "PLR2004", # magic values: format constants are documented in SPEC.md
+    "PLC0415", # imports inside functions keep optional dependencies optional
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S108", "S603", "PLR2004", "T20", "PLC0415", "N802", "PERF", "PT012", "S311", "RUF001", "RUF003"]
+"examples/**" = ["T20", "S101", "S108", "RUF001", "RUF003"]
+"src/pytrosna/cli.py" = ["T20"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["pytrosna"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "src"]
+addopts = ["-ra", "--strict-markers", "--strict-config", "--doctest-modules", "--import-mode=importlib"]
+doctest_optionflags = ["NORMALIZE_WHITESPACE", "ELLIPSIS"]
+markers = [
+    "slow: long-running tests (large files, exhaustive crash simulation)",
+    "interop: tests against the reference Rust implementation (skipped if it is not available)",
+]
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+source = ["pytrosna"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@overload",
+]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src/pytrosna"]
+warn_unused_ignores = true
+warn_redundant_casts = true
+check_untyped_defs = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+ignore_missing_imports = true
